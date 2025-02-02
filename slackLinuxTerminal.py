@@ -6,6 +6,7 @@ from dotenv import load_dotenv
 from slack_bolt import App
 from slack_bolt.adapter.socket_mode import SocketModeHandler
 import getpass
+import shlex
 
 # Load environment variables from .env file
 load_dotenv()
@@ -24,6 +25,24 @@ if not all([SLACK_BOT_TOKEN, SLACK_APP_TOKEN, TARGET_CHANNEL_ID]):
 
 # Initialize the Slack Bolt App
 app = App(token=SLACK_BOT_TOKEN)
+
+def handle_cd_command(args):
+    """Handle cd command separately to maintain directory state."""
+    try:
+        # Default to home directory if no args
+        if not args:
+            new_dir = os.path.expanduser("~")
+        else:
+            new_dir = args[0]
+        
+        # Expand the path
+        new_dir = os.path.expanduser(new_dir)
+        
+        # Change directory
+        os.chdir(new_dir)
+        return f"Changed directory to {os.getcwd()}"
+    except Exception as e:
+        return f"Error changing directory: {str(e)}"
 
 @app.message("")
 def handle_message(message, say, client):
@@ -58,14 +77,19 @@ def handle_message(message, say, client):
     if current_path.startswith(home):
         current_path = "~" + current_path[len(home):]
 
-    # Execute the shell command
+    # Parse the command
     try:
-        # The command is executed with a timeout for safety (adjust timeout as needed)
-        result = subprocess.run(text, shell=True, capture_output=True, text=True, timeout=15)
-        # Use stdout if available; otherwise, use stderr
-        output = result.stdout if result.stdout else result.stderr
-        if not output.strip():
-            output = "[No output]"
+        args = shlex.split(text)
+        if not args:
+            output = ""
+        elif args[0] == "cd":
+            output = handle_cd_command(args[1:])
+        else:
+            # Execute other commands normally
+            result = subprocess.run(text, shell=True, capture_output=True, text=True, timeout=15)
+            output = result.stdout if result.stdout else result.stderr
+            if not output.strip():
+                output = "[No output]"
     except Exception as e:
         output = f"Error executing command: {e}"
 
