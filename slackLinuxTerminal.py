@@ -5,6 +5,7 @@ import logging
 from dotenv import load_dotenv
 from slack_bolt import App
 from slack_bolt.adapter.socket_mode import SocketModeHandler
+import getpass
 
 # Load environment variables from .env file
 load_dotenv()
@@ -14,7 +15,7 @@ logging.basicConfig(level=logging.INFO)
 
 # Get the Slack Bot token and target channel ID from environment variables
 SLACK_BOT_TOKEN = os.environ.get("SLACK_BOT_TOKEN")
-SLACK_APP_TOKEN = os.environ.get("SLACK_APP_TOKEN")  # New token needed for Socket Mode
+SLACK_APP_TOKEN = os.environ.get("SLACK_APP_TOKEN")
 TARGET_CHANNEL_ID = os.environ.get("TARGET_CHANNEL_ID")
 
 if not all([SLACK_BOT_TOKEN, SLACK_APP_TOKEN, TARGET_CHANNEL_ID]):
@@ -25,7 +26,7 @@ if not all([SLACK_BOT_TOKEN, SLACK_APP_TOKEN, TARGET_CHANNEL_ID]):
 app = App(token=SLACK_BOT_TOKEN)
 
 @app.message("")
-def handle_message(message, say):
+def handle_message(message, say, client):
     """
     This function is called on every incoming message event.
     It checks that the message is from the target channel and not sent by a bot,
@@ -33,12 +34,29 @@ def handle_message(message, say):
     """
     channel = message.get("channel")
     text = message.get("text", "")
+    user_id = message.get("user")
     
     # Process only messages in our target channel
     if channel != TARGET_CHANNEL_ID:
         return
 
-    logging.info(f"Received command: {text}")
+    # Get user info
+    try:
+        user_info = client.users_info(user=user_id)
+        username = user_info["user"]["name"]
+    except Exception as e:
+        username = "unknown_user"
+        logging.error(f"Failed to get user info: {e}")
+
+    logging.info(f"Received command from {username}: {text}")
+
+    # Get current working directory and username
+    current_path = os.getcwd()
+    system_user = getpass.getuser()
+    # Get the shortened path (similar to bash prompt)
+    home = os.path.expanduser("~")
+    if current_path.startswith(home):
+        current_path = "~" + current_path[len(home):]
 
     # Execute the shell command
     try:
@@ -51,8 +69,9 @@ def handle_message(message, say):
     except Exception as e:
         output = f"Error executing command: {e}"
 
-    # Format the output inside a code block for readability in Slack
-    response_message = f"```\n{output}\n```"
+    # Format the response like a terminal prompt
+    prompt = f"{system_user}@{os.uname().nodename}:{current_path}$ {text}"
+    response_message = f"```{prompt}\n{output}```"
 
     # Send the response back to the same channel
     try:
