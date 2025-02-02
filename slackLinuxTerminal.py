@@ -3,8 +3,8 @@ import os
 import subprocess
 import logging
 from dotenv import load_dotenv
-from slack_sdk import WebClient
-from slack_sdk.rtm_v2 import RTMClient
+from slack_bolt import App
+from slack_bolt.adapter.socket_mode import SocketModeHandler
 
 # Load environment variables from .env file
 load_dotenv()
@@ -14,29 +14,28 @@ logging.basicConfig(level=logging.INFO)
 
 # Get the Slack Bot token and target channel ID from environment variables
 SLACK_BOT_TOKEN = os.environ.get("SLACK_BOT_TOKEN")
+SLACK_APP_TOKEN = os.environ.get("SLACK_APP_TOKEN")  # New token needed for Socket Mode
 TARGET_CHANNEL_ID = os.environ.get("TARGET_CHANNEL_ID")
 
-if not SLACK_BOT_TOKEN or not TARGET_CHANNEL_ID:
-    logging.error("Both SLACK_BOT_TOKEN and TARGET_CHANNEL_ID must be set in the environment.")
+if not all([SLACK_BOT_TOKEN, SLACK_APP_TOKEN, TARGET_CHANNEL_ID]):
+    logging.error("SLACK_BOT_TOKEN, SLACK_APP_TOKEN, and TARGET_CHANNEL_ID must be set in the environment.")
     exit(1)
 
-# Initialize the Slack WebClient
-web_client = WebClient(token=SLACK_BOT_TOKEN)
+# Initialize the Slack Bolt App
+app = App(token=SLACK_BOT_TOKEN)
 
-@RTMClient.run_on(event="message")
-def handle_message(**payload):
+@app.message("")
+def handle_message(message, say):
     """
     This function is called on every incoming message event.
     It checks that the message is from the target channel and not sent by a bot,
     then executes the message text as a shell command.
     """
-    data = payload.get("data", {})
-    channel = data.get("channel")
-    text = data.get("text", "")
-    subtype = data.get("subtype", None)  # e.g., 'bot_message' for bot messages
-
-    # Process only messages in our target channel and skip bot messages
-    if channel != TARGET_CHANNEL_ID or (subtype is not None and subtype == "bot_message"):
+    channel = message.get("channel")
+    text = message.get("text", "")
+    
+    # Process only messages in our target channel
+    if channel != TARGET_CHANNEL_ID:
         return
 
     logging.info(f"Received command: {text}")
@@ -57,16 +56,16 @@ def handle_message(**payload):
 
     # Send the response back to the same channel
     try:
-        web_client.chat_postMessage(channel=channel, text=response_message)
+        say(response_message)
         logging.info("Command output sent to Slack.")
     except Exception as e:
         logging.error(f"Failed to post message to Slack: {e}")
 
 def main():
-    # Initialize and start the RTM (Real Time Messaging) client
-    rtm_client = RTMClient(token=SLACK_BOT_TOKEN)
-    logging.info("Starting Slack RTM client...")
-    rtm_client.start()
+    # Initialize and start the Socket Mode handler
+    handler = SocketModeHandler(app_token=SLACK_APP_TOKEN, app=app)
+    logging.info("Starting Slack app in Socket Mode...")
+    handler.start()
 
 if __name__ == "__main__":
     main()
